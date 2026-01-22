@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "collabx"
+version = "0.3.0"
+description = "Ephemeral HTTP collector (Burp Collaborator-like) with a free-tier focused CLI (GCP Cloud Run first)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Randall Thomas"}]
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "pydantic>=2.6",
+  "pydantic-settings>=2.2",
+  "aiosqlite>=0.19",
+  "typer>=0.12",
+  "rich>=13.7",
+  "httpx>=0.26",
+]
+
+[project.scripts]
+collabx = "collabx.main:app"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
