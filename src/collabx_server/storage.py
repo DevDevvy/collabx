@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS events (
   body_truncated INTEGER NOT NULL,
   content_type TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_events_id ON events(id);
+CREATE INDEX IF NOT EXISTS idx_events_received_at ON events(received_at);
+CREATE INDEX IF NOT EXISTS idx_events_method ON events(method);
 """
 
 
@@ -96,24 +99,55 @@ class EventStore:
         await self.db.commit()
         return int(cur.lastrowid)
 
-    async def get_events(self, after_id: int, limit: int) -> Tuple[List[Dict[str, Any]], int]:
+    async def get_events(
+        self,
+        after_id: int,
+        limit: int,
+        method: Optional[str] = None,
+        path_contains: Optional[str] = None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """Get events with optional filtering.
+        
+        Args:
+            after_id: Return events with ID > this value
+            limit: Maximum number of events to return
+            method: Optional filter by HTTP method
+            path_contains: Optional filter for paths containing this string
+            
+        Returns:
+            Tuple of (events list, last_id)
+        """
         assert self.db is not None, "DB not connected"
         limit = max(1, min(limit, 200))
         after_id = max(0, int(after_id))
 
+        # Build query with optional filters
+        conditions = ["id > ?"]
+        params = [after_id]
+        
+        if method:
+            conditions.append("method = ?")
+            params.append(method.upper())
+        
+        if path_contains:
+            conditions.append("path LIKE ?")
+            params.append(f"%{path_contains}%")
+        
+        where_clause = " AND ".join(conditions)
+        
         cur = await self.db.execute(
-            """
+            f"""
             SELECT
               id, received_at, method, path, query,
               client_ip, x_forwarded_for, x_real_ip,
               origin, referer, user_agent,
               headers_json, body_text, body_b64, body_truncated, content_type
             FROM events
-            WHERE id > ?
+            WHERE {where_clause}
             ORDER BY id ASC
             LIMIT ?
             """,
-            (after_id, limit),
+            (*params, limit),
         )
         rows = await cur.fetchall()
 
@@ -123,7 +157,7 @@ class EventStore:
             (
                 eid,
                 received_at,
-                method,
+                method_val,
                 path,
                 query,
                 client_ip,
@@ -147,7 +181,7 @@ class EventStore:
                 dict(
                     id=int(eid),
                     received_at=received_at,
-                    method=method,
+                    method=method_val,
                     path=path,
                     query=query,
                     client_ip=client_ip,
@@ -164,3 +198,73 @@ class EventStore:
                 )
             )
         return events, last_id
+    
+    async def get_statistics(self) -> Dict[str, Any]:
+        """Get collection statistics.
+        
+        Returns:
+            Dictionary with statistics about collected events
+        """
+        assert self.db is not None, "DB not connected"
+        
+        # Total count
+        cur = await self.db.execute("SELECT COUNT(*) FROM events")
+        row = await cur.fetchone()
+        total_count = row[0] if row else 0
+        
+        # Count by method
+        cur = await self.db.execute(
+            "SELECT method, COUNT(*) as count FROM events GROUP BY method ORDER BY count DESC"
+        )
+        rows = await cur.fetchall()
+        by_method = {method: count for method, count in rows}
+        
+        # Recent events (last 24 hours)
+        cur = await self.db.execute(
+            "SELECT COUNT(*) FROM events WHERE received_at > datetime('now', '-1 day')"
+        )
+        row = await cur.fetchone()
+        last_24h = row[0] if row else 0
+        
+        # First and last event timestamps
+        cur = await self.db.execute(
+            "SELECT MIN(received_at), MAX(received_at) FROM events"
+        )
+        row = await cur.fetchone()
+        first_event = row[0] if row and row[0] else None
+        last_event = row[1] if row and row[1] else None
+        
+        # Unique IPs
+        cur = await self.db.execute(
+            "SELECT COUNT(DISTINCT client_ip) FROM events WHERE client_ip != ''"
+        )
+        row = await cur.fetchone()
+        unique_ips = row[0] if row else 0
+        
+        return {
+            "total_events": total_count,
+            "events_last_24h": last_24h,
+            "unique_ips": unique_ips,
+            "by_method": by_method,
+            "first_event": first_event,
+            "last_event": last_event,
+        }
+    
+    async def cleanup_old_events(self, days: int) -> int:
+        """Delete events older than the specified number of days.
+        
+        Args:
+            days: Delete events older than this many days
+            
+        Returns:
+            Number of deleted events
+        """
+        assert self.db is not None, "DB not connected"
+        
+        cur = await self.db.execute(
+            "DELETE FROM events WHERE received_at < datetime('now', ? || ' days')",
+            (f"-{days}",)
+        )
+        await self.db.commit()
+        
+        return cur.rowcount if cur.rowcount else 0

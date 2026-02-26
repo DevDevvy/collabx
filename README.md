@@ -31,6 +31,16 @@ pip install -U pip
 pip install -e .
 ```
 
+### For development
+
+```bash
+pip install -e ".[dev]"
+```
+
+This includes pytest, pytest-asyncio, pytest-cov, and ruff for testing and linting.
+
+---
+
 ## Local quickstart
 
 ### Start the server
@@ -288,10 +298,133 @@ That deletes the Cloud Run service and attempts to delete the pushed image tag.
 
 ### Endpoints
 
-- /{token}/c (GET/POST) collector (supports extra path segments)
+Core endpoints:
 
-- /{token}/logs cursor-based polling
+- `/{token}/c` (GET/POST) - Collector endpoint (supports extra path segments)
+- `/{token}/logs` - Cursor-based polling with filtering support
+- `/{token}/events` - SSE stream (opt-in)
+- `/{token}/stats` - Collection statistics
+- `/{token}/export` - Export logs in JSON, CSV, or NDJSON
+- `/{token}/cleanup` - Delete old events (DELETE method)
+- `/healthz` - Health check with uptime and version
 
-- /{token}/events SSE stream (opt-in)
+### New Features (v0.4.0)
 
-- /healthz
+#### Statistics Endpoint
+
+Get insights about your collected callbacks:
+
+```bash
+curl -s "$BASE/$TOKEN/stats" | jq
+```
+
+Returns:
+
+- Total event count
+- Events in last 24 hours
+- Breakdown by HTTP method
+- Unique IP addresses
+- First and last event timestamps
+
+#### Export Functionality
+
+Download your logs in multiple formats:
+
+```bash
+# Export as JSON
+curl -O "$BASE/$TOKEN/export?format=json"
+
+# Export as CSV
+curl -O "$BASE/$TOKEN/export?format=csv&limit=1000"
+
+# Export as NDJSON (newline-delimited JSON)
+curl -O "$BASE/$TOKEN/export?format=ndjson"
+```
+
+#### Filtering Logs
+
+Filter logs by method or path:
+
+```bash
+# Get only POST requests
+curl -s "$BASE/$TOKEN/logs?method=POST" | jq
+
+# Get requests with specific path
+curl -s "$BASE/$TOKEN/logs?path_contains=webhook" | jq
+
+# Combine filters
+curl -s "$BASE/$TOKEN/logs?method=GET&path_contains=api" | jq
+```
+
+#### Data Retention & Cleanup
+
+Delete old events to manage storage:
+
+```bash
+# Delete events older than 7 days
+curl -X DELETE "$BASE/$TOKEN/cleanup?days=7"
+
+# Delete events older than 30 days
+curl -X DELETE "$BASE/$TOKEN/cleanup?days=30"
+```
+
+#### Rate Limiting
+
+Built-in rate limiting protects against abuse (60 requests/minute per IP by default).
+
+Configure via environment variables:
+
+```bash
+export COLLABX_ENABLE_RATE_LIMIT=true
+export COLLABX_RATE_LIMIT_PER_MINUTE=100
+```
+
+#### CORS Support
+
+Enable CORS for browser-based testing:
+
+```bash
+export COLLABX_ENABLE_CORS=true
+export COLLABX_CORS_ORIGINS="https://example.com,https://test.com"
+```
+
+### Configuration Options
+
+All configuration via environment variables with `COLLABX_` prefix:
+
+| Variable                        | Default           | Description                                    |
+| ------------------------------- | ----------------- | ---------------------------------------------- |
+| `COLLABX_TOKEN`                 | (required)        | Token(s) for authentication (comma-separated)  |
+| `COLLABX_DB_PATH`               | `collabx.sqlite3` | SQLite database path                           |
+| `COLLABX_ENABLE_RATE_LIMIT`     | `true`            | Enable rate limiting                           |
+| `COLLABX_RATE_LIMIT_PER_MINUTE` | `60`              | Max requests per minute per IP                 |
+| `COLLABX_ENABLE_CORS`           | `false`           | Enable CORS middleware                         |
+| `COLLABX_CORS_ORIGINS`          | `*`               | Allowed CORS origins (comma-separated)         |
+| `COLLABX_MAX_BODY_BYTES`        | `262144`          | Max body size to store (256KB)                 |
+| `COLLABX_MAX_HEADER_BYTES`      | `8192`            | Max header size to store (8KB)                 |
+| `COLLABX_RETENTION_DAYS`        | `30`              | Default retention period for events            |
+| `COLLABX_REDACT_PATTERNS`       | `""`              | Regex patterns for redaction (comma-separated) |
+
+### Testing
+
+Run the test suite:
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=src --cov-report=html
+
+# Run specific test file
+pytest tests/test_integration.py
+
+# Run with verbose output
+pytest -v
+```
+
+### API Documentation
+
+When running locally, visit `http://127.0.0.1:8080/docs` for interactive API documentation (Swagger UI).
+
+---

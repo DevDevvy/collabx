@@ -23,6 +23,13 @@ class Settings(BaseSettings):
         description="Optional comma-separated regex patterns applied to query/body for redaction.",
     )
     service_name: str = Field(default="collabx", description="Display name.")
+    
+    # New settings for v0.4.0
+    enable_cors: bool = Field(default=False, description="Enable CORS middleware.")
+    cors_origins: str = Field(default="*", description="Comma-separated allowed origins for CORS.")
+    enable_rate_limit: bool = Field(default=True, description="Enable rate limiting middleware.")
+    rate_limit_per_minute: int = Field(default=60, description="Max requests per minute per IP.")
+    retention_days: int = Field(default=30, description="Default retention period for events (days).")
 
     def tokens(self) -> List[str]:
         return [t.strip() for t in self.token.split(",") if t.strip()]
@@ -32,3 +39,6 @@ class Settings(BaseSettings):
 
     def redact_pattern_list(self) -> List[str]:
         return [p.strip() for p in self.redact_patterns.split(",") if p.strip()]
+    
+    def cors_origins_list(self) -> List[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
